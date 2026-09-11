@@ -10,6 +10,10 @@ export type DefectTelemetry = {
   oheWearPercent?: number; // Catenary contact wire wear % (0-100)
   axleCounterErrorRate?: number; // Errors per 1000 axle counts
   pointMachineCurrentAmps?: number; // Point machine peak operating current (normal: 2.5-3.5A, degraded > 5.5A)
+  pointThrowTimeSeconds?: number; // Operating throw duration in seconds (normal 3.8-4.5s, degraded > 6.0s)
+  trackCircuitVoltageVolts?: number; // Relay track circuit drop voltage (normal 1.8-2.5V, critical drop < 1.05V)
+  signalAspectCurrentMa?: number; // LED signal aspect current consumption (normal 120-150mA, burnout < 60mA)
+  relayContactResistanceOhms?: number; // Q-series neutral relay contact resistance (normal < 0.15 ohm, high > 0.45 ohm)
   axleVibrationG?: number; // Axle-box accelerometer peak G-forces (normal < 0.25G, defect > 0.65G)
   trafficDensityGmt?: number; // Gross Million Tonnes per annum (e.g. 20-80 GMT)
   passengerExpressCount?: number; // Daily express trains on corridor
@@ -224,3 +228,77 @@ export type CoaSanctionSheet = {
   digitalSignatureHash: string;
   iPasRequisitionRef?: string;
 };
+
+// ==========================================
+// Signal Management & Interlocking Types (SEM/EI)
+// ==========================================
+
+export type InterlockingType = "EI" | "SSI" | "RRI" | "PI";
+export type SignalAspect = "RED" | "YELLOW" | "DOUBLE_YELLOW" | "GREEN";
+export type PointPosition = "NORMAL" | "REVERSE" | "MAINTENANCE_DISCONNECTED";
+export type RouteStatus = "IDLE" | "SET_LOCKED" | "BLOCKED_BY_DISCONNECTION";
+export type OperatingMode = "NORMAL_INTERLOCKED" | "NON_INTERLOCKED_15KMH" | "ABSOLUTE_BLOCK_0KMH";
+
+export type PointMachineModel = {
+  id: string;
+  name: string;
+  locationKm: number;
+  type: "110V_DC" | "24V_DC";
+  position: PointPosition;
+  motorCurrentAmps: number; // 2.5-3.5 normal, >5.5 critical
+  throwTimeSeconds: number; // 3.8-4.5s normal, >7.0s timeout
+  healthStatus: "NOMINAL" | "DEGRADED" | "CRITICAL_ALERT" | "DISCONNECTED";
+  dependentRouteIds: string[];
+};
+
+export type SignalAspectModel = {
+  id: string;
+  name: string;
+  type: "HOME" | "ROUTING" | "STARTER" | "ADVANCE_STARTER";
+  currentAspect: SignalAspect;
+  operatingCurrentMa: number;
+  clampedDanger: boolean;
+};
+
+export type YardRouteModel = {
+  id: string;
+  name: string;
+  from: string;
+  to: string;
+  requiredPoints: { pointId: string; position: "NORMAL" | "REVERSE" }[];
+  clearingSignalId: string;
+  status: RouteStatus;
+  speedCapKmh: number;
+  blockedReason?: string;
+};
+
+export type DisconnectionNotice = {
+  id: string;
+  memoNumber: string; // e.g. "S&T/T-351/NCR/PWL/2026/04"
+  stationCode: string;
+  gearId: string;
+  gearName: string;
+  gearType: "POINT_MACHINE" | "AXLE_COUNTER" | "TRACK_CIRCUIT" | "SIGNAL_ASPECT" | "EI_CHASSIS";
+  operatingMode: "NON_INTERLOCKED_15KMH" | "ABSOLUTE_BLOCK_0KMH";
+  issuedBy: string;
+  stationMasterAck: string;
+  issuedAt: string;
+  testingRequiredMinutes: number;
+  testingCompleted: boolean;
+  testingProgressPercent: number;
+  status: "ACTIVE_DISCONNECTION" | "TESTING" | "RECONNECTED_FIT";
+  reconnectionMemoNumber?: string;
+};
+
+export type InterlockingStation = {
+  code: string;
+  name: string;
+  interlockingType: InterlockingType;
+  manufacturer: string;
+  points: PointMachineModel[];
+  signals: SignalAspectModel[];
+  routes: YardRouteModel[];
+  activeDisconnections: DisconnectionNotice[];
+  operatingMode: OperatingMode;
+};
+

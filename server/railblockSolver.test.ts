@@ -117,5 +117,34 @@ describe("RailBlock CP-SAT Solver & Multi-Department Pooling", () => {
     expect(benchmark.railBlockCpSat.corridorDowntimeHours).toBeLessThanOrEqual(10);
     expect(benchmark.railBlockCpSat.optimalityGap).toContain("1.1%");
   });
+
+  it("models S&T Point Machine failure, inventory lead-time lower bound, and route locking", () => {
+    const scenario = getCorrelatedScenarioDataset(true);
+    const result = solveRailBlockPlan(
+      [scenario.corridor],
+      scenario.workOrders,
+      scenario.trains,
+      {
+        horizonHours: 24,
+        headwayBufferMinutes: 20,
+        punctualityWeight: 70,
+        allowCoUtilization: true,
+        respectFrozenHorizonHours: 2,
+      }
+    );
+
+    const stPointMachineTask = result.scheduledWorkOrders.find((w) => w.id === "ST-204");
+    expect(stPointMachineTask).toBeDefined();
+
+    // Inventory lower bound: cannot start before parts arrive at t0 + 18h (1080 minutes)
+    expect(stPointMachineTask?.scheduledStartTime).toBeGreaterThanOrEqual(18 * 60);
+
+    // Conflict rationale or notes should account for inventory readiness / route locking
+    expect(
+      result.rationaleNotes.some(
+        (n) => n.includes("ST-204") || n.includes("Inventory") || n.includes("partsReadyHour") || n.includes("Lead Time")
+      )
+    ).toBe(true);
+  });
 });
 

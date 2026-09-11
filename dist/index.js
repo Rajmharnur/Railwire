@@ -667,9 +667,19 @@ function predictRemainingUsefulLife(dept, telemetry) {
   if (dept === "S&T") {
     const axleErrors = telemetry.axleCounterErrorRate ?? 0;
     const motorCurrent = telemetry.pointMachineCurrentAmps ?? 3;
-    if (axleErrors >= 10 || motorCurrent > 5.5) return Math.max(4, Math.round(8 / gmtFactor));
-    if (axleErrors >= 4 || motorCurrent > 4.5) return Math.max(18, Math.round(26 / gmtFactor));
-    if (axleErrors >= 1) return Math.round(72 / gmtFactor);
+    const throwTime = telemetry.pointThrowTimeSeconds ?? 4;
+    const trackVolt = telemetry.trackCircuitVoltageVolts ?? 2.1;
+    const aspectMa = telemetry.signalAspectCurrentMa ?? 135;
+    const relayOhms = telemetry.relayContactResistanceOhms ?? 0.12;
+    if (axleErrors >= 10 || motorCurrent > 5.5 || throwTime > 7 || trackVolt < 1.05 || aspectMa < 60 || relayOhms > 0.45) {
+      return Math.max(4, Math.round(8 / gmtFactor));
+    }
+    if (axleErrors >= 4 || motorCurrent > 4.5 || throwTime > 5.5 || trackVolt < 1.4 || aspectMa < 90 || relayOhms > 0.3) {
+      return Math.max(16, Math.round(24 / gmtFactor));
+    }
+    if (axleErrors >= 1 || motorCurrent > 3.8 || throwTime > 4.8 || trackVolt < 1.7) {
+      return Math.round(72 / gmtFactor);
+    }
     return Math.round(168 / gmtFactor);
   }
   return 48;
@@ -849,16 +859,32 @@ function calculateMLUrgencyScore(dept, telemetry) {
   if (dept === "S&T") {
     const axleErrors = telemetry.axleCounterErrorRate ?? 0;
     const motorCurrent = telemetry.pointMachineCurrentAmps ?? 3;
+    const throwTime = telemetry.pointThrowTimeSeconds ?? 4;
+    const trackVolt = telemetry.trackCircuitVoltageVolts ?? 2.1;
+    const aspectMa = telemetry.signalAspectCurrentMa ?? 135;
+    const relayOhms = telemetry.relayContactResistanceOhms ?? 0.12;
     if (motorCurrent > 5.5) {
       axlePenalty = 2.7;
       dominantFactor = `Point machine motor current spike (${motorCurrent}A) - Stiction/Gearbox failure`;
+    } else if (throwTime > 7) {
+      axlePenalty = 2.6;
+      dominantFactor = `Point machine throw time-out (${throwTime}s > 7.0s limit) - Drive lock failure`;
+    } else if (trackVolt < 1.05) {
+      axlePenalty = 2.5;
+      dominantFactor = `Critical track circuit drop voltage (${trackVolt}V) - False red track drop danger`;
+    } else if (aspectMa < 60) {
+      axlePenalty = 2.5;
+      dominantFactor = `LED signal aspect current drop (${aspectMa}mA) - Aspect extinguish hazard`;
     } else if (axleErrors >= 10) {
       axlePenalty = 2.6;
       dominantFactor = `Repeated digital axle counter reset faults (${axleErrors}/1k counts)`;
-    } else if (axleErrors >= 4) {
+    } else if (relayOhms > 0.45) {
+      axlePenalty = 2.2;
+      dominantFactor = `Q-series relay contact resistance high (${relayOhms}\u03A9) - Interlocking chatter`;
+    } else if (axleErrors >= 4 || motorCurrent > 4.5 || throwTime > 5.5 || trackVolt < 1.4) {
       axlePenalty = 1.4;
-      dominantFactor = `Axle counter pulse drop rate elevated (${axleErrors}/1k)`;
-    } else if (axleErrors >= 1) {
+      dominantFactor = `S&T sub-asset parameter elevated (Current ${motorCurrent}A / Volt ${trackVolt}V)`;
+    } else if (axleErrors >= 1 || motorCurrent > 3.8) {
       axlePenalty = 0.6;
     }
   }
@@ -1106,6 +1132,14 @@ function solveRailBlockPlan(corridors, workOrders, trains, options) {
         rationaleNotes.push(
           `Co-utilized ${group.length} tasks (${departments.join(" + ")}) on ${corridorId} (KM ${masterBlock.startKm}\u2013${masterBlock.endKm}) inside ${maxTaskDuration}m window. Saved ${savedMinutes}m downtime. ${isolatesPower ? "[25kV OHE Isolated \u2014 Diesel/Manual gangs only]" : "[25kV Energized]"}`
         );
+      }
+      if (groupPartsReadyMinute > 0) {
+        const partsTask = group.find((t2) => (t2.partsReadyHour ?? 0) > 0);
+        if (partsTask) {
+          rationaleNotes.push(
+            `Task ${partsTask.id} (${partsTask.department}): Inventory Lead-Time lower bound enforced. Scheduled at ${Math.floor(scheduledStart / 60)}h${String(scheduledStart % 60).padStart(2, "0")} post supplier parts delivery (partsReadyHour = ${partsTask.partsReadyHour}h).`
+          );
+        }
       }
     } else {
       for (const task of group) {

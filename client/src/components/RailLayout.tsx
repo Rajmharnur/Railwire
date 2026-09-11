@@ -15,6 +15,7 @@ import {
   Route,
   Search,
   Settings2,
+  ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Train,
@@ -22,8 +23,12 @@ import {
   VolumeX,
   X,
   Zap,
+  Bot,
+  Sparkles,
+  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AIChatBox, type Message } from "./AIChatBox";
 
 export function Pill({
   children,
@@ -69,7 +74,63 @@ export function RailLayout({
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showFeedsModal, setShowFeedsModal] = useState(false);
+  const [showAiCoPilot, setShowAiCoPilot] = useState(false);
+  const [isAiResponding, setIsAiResponding] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
+
+  const [aiMessages, setAiMessages] = useState<Message[]>([
+    {
+      role: "assistant",
+      content:
+        "**RailBlock AI Dispatch Co-Pilot Online.**\n\nI am connected to the Delhi–Palwal Section Control gateway, Electronic Interlocking logic, and CP-SAT optimization engine. You can ask me regarding:\n* **Form S&T T/351 Disconnection Notice** & 15 km/h Non-Interlocked (NI) working\n* **Electrical Traction Isolation (25 kV OHE)** & diesel vs electric machine mutexes\n* **CP-SAT Corridor C-1 Optimization** & freight delay absorption (BOXN-42)\n* **Depot Inventory Replenishment** lead-time bounding ($t_{\\text{parts}}$)\n* **COA Block Sanction Memo** generation",
+    },
+  ]);
+
+  const handleSendAiMessage = (userText: string) => {
+    const newUserMsg: Message = { role: "user", content: userText };
+    setAiMessages((prev) => [...prev, newUserMsg]);
+    setIsAiResponding(true);
+
+    setTimeout(() => {
+      let reply = "";
+      const q = userText.toLowerCase();
+
+      if (q.includes("pw-305") || q.includes("tamper") || q.includes("defer") || q.includes("ohe") || q.includes("electric")) {
+        reply = `### ⚡ Traction Safety Mutex Rationale (ACTM 25kV Compliance)
+* **Work Order PW-305** (Heavy Electric Continuous Track Tamper 09-3X) requires **25 kV AC overhead power** for traction and vibratory hydraulic pumps.
+* **Work Order TRD-101** requires **25 kV Catenary De-energization & Grounding** on KM 142.0 – 144.5 Up Line.
+* **CP-SAT Mutex Enforcement:** $\\text{RequiresElectric}_i + \\text{IsolatesOHE}_j \\le 1$.
+* **Operational Action:** RailBlock AI safely deferred PW-305 to Block Window **B-2 (13:30–17:00 IST)** post-re-energization, preventing catenary flashover and stranded electrical machinery.`;
+      } else if (q.includes("t/351") || q.includes("t-351") || q.includes("disconnection") || q.includes("interlocking") || q.includes("signal") || q.includes("15 km")) {
+        reply = `### 🚦 Statutory Signal Disconnection Protocol (Form S&T T/351 & T/352)
+* **Under IR SEM Chapter VII & G&SR 3.51:** S&T field staff cannot tamper with point machines or logic racks without formal notice to the Station Master.
+* **Mode A (Non-Interlocked NI Working):** Imposes a **mandatory 15 km/h pilot-movement speed cap** with physical clamp-and-padlock switch protection.
+* **Interlocking Route-Locking Mutex:** When Point Machine PM-104A is disconnected, Route Set $\\mathcal{R}_{104}$ is locked, automatically clamping Home Signal S-101 to **RED DANGER**.
+* **Reconnection Clearance (Form S&T T/352):** Requires mandatory 30-minute post-maintenance testing (**5mm obstacle test** & correspondence test) before interlocking normalization.`;
+      } else if (q.includes("lead") || q.includes("inventory") || q.includes("po") || q.includes("part") || q.includes("bom")) {
+        reply = `### 📦 Predictive BOM & Lead-Time Bounding ($t_{\\text{parts}}$)
+* **Root Problem Addressed:** Phantom maintenance approvals where crews mobilize only to find critical components out-of-stock.
+* **Active Depot State:** Point Machine Motor (\`INV-ST-01\`) had 0 units on hand at Palwal Store.
+* **Automated Vendor PO:** RailBlock AI triggered Advance Purchase Order with **12h expedited lead time**.
+* **Hard Solver Bound:** $\\text{start}_{\\text{ST-204}} \\ge t_0 + L_{\\text{supplier}} = 12.0\\text{h}$. The CP-SAT solver strictly scheduled ST-204 at $t = 12.0\\text{h}$, completely eliminating crew idling!`;
+      } else if (q.includes("cp-sat") || q.includes("boxn") || q.includes("freight") || q.includes("delay") || q.includes("gatimaan")) {
+        reply = `### 🧠 CP-SAT Constraint Programming Engine Dynamics
+* **Corridor C-1 Multi-Task Pooling:** Integrated shadow blocks pooled TRD-101, P-Way manual gang PW-302, and S&T-204 into a unified 210-min possession.
+* **Passenger Priority Defense:** Premium train **Gatimaan Express (#12050)** operating at 160 km/h is protected with zero delay.
+* **Dynamic Delay Absorption:** Delayed freight train **BOXN-42 (+75 min)** was dynamically re-routed via the downline loop without corrupting the critical maintenance window.
+* **Corridor Savings:** 310 cumulative minutes of corridor starvation reduced to 210 minutes of safe possession.`;
+      } else {
+        reply = `### 🚆 RailBlock AI Section Operations Advisory
+Your query regarding **"${userText}"** was processed by the RailBlock dispatch reasoning layer:
+1. **Interlocking Status:** Stations Palwal (PWL - Dual 2oo3 EI) and Mathura Jn (MTJ - RRI) are monitored with active route mutex clearance.
+2. **Current Rolling Horizon:** 24-hour CP-SAT rolling window with 2-hour frozen boundary to prevent last-minute gang disruptions.
+3. **Recommended Action:** Review the **Command Center** for live conflict resolution, or inspect the **Signal & Interlocking Console** (\`/signals\`) to simulate Form S&T T/351 disconnection notices.`;
+      }
+
+      setAiMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+      setIsAiResponding(false);
+    }, 500);
+  };
 
   // Quick Toggles
   const [soundAlerts, setSoundAlerts] = useState(true);
@@ -131,18 +192,23 @@ export function RailLayout({
     { href: "/", label: "Command Center", icon: Activity, badge: "LIVE" },
     { href: "/corridors", label: "Corridors Map", icon: Route },
     { href: "/work-orders", label: "Work Orders & ML", icon: Layers3, count: "24" },
+    { href: "/signals", label: "Signal & Interlocking", icon: ShieldAlert, badge: "EI/T-351" },
     { href: "/analytics", label: "Solver Benchmark", icon: BarChart3, badge: "20-COR" },
     { href: "/scenarios", label: "What-If Sandbox", icon: SlidersHorizontal },
     { href: "/coa-sanction", label: "COA Sanction Memo", icon: FileSpreadsheet },
+    { href: "/components", label: "UI Design Library", icon: Sparkles, badge: "DOCS" },
   ];
 
   const paletteActions = [
+    { label: "Ask AI Operations Co-Pilot", path: "#ai-copilot", icon: Bot, category: "AI Assistant" },
     { label: "Go to Master Command Center", path: "/", icon: Activity, category: "Navigation" },
     { label: "Open Corridors Topology Map", path: "/corridors", icon: Route, category: "Navigation" },
     { label: "View Work Orders & ML Scoring", path: "/work-orders", icon: Layers3, category: "Navigation" },
+    { label: "Open Signal & Interlocking Console", path: "/signals", icon: ShieldAlert, category: "Navigation" },
     { label: "Run 20-Corridor 200-Task Benchmark", path: "/analytics", icon: BarChart3, category: "Navigation" },
     { label: "Open What-If Scenario Sandbox", path: "/scenarios", icon: SlidersHorizontal, category: "Navigation" },
     { label: "Generate Official COA Sanction Memo", path: "/coa-sanction", icon: FileSpreadsheet, category: "Navigation" },
+    { label: "Open UI Component & Design System Showcase", path: "/components", icon: Sparkles, category: "Design System" },
   ];
 
   const filteredPalette = paletteActions.filter((a) =>
@@ -298,6 +364,16 @@ export function RailLayout({
               <span>{highContrast ? "HIGH-CONTRAST" : "COCKPIT"}</span>
             </button>
 
+            <button
+              type="button"
+              className="text-[10px] flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#06b6d4]/15 border border-[#06b6d4]/50 hover:border-[#22d3ee] text-[#22d3ee] font-bold transition-all shadow-sm shadow-[#06b6d4]/20"
+              onClick={() => setShowAiCoPilot(true)}
+              title="Open AI Operations Co-Pilot"
+            >
+              <Bot size={12} className="text-[#22d3ee] animate-pulse" />
+              <span>AI CO-PILOT</span>
+            </button>
+
             <div className="mission-chip cyan">
               <ShieldCheck size={12} className="text-[#22d3ee]" />
               <span>COA AUTO-SANCTION</span>
@@ -391,7 +467,11 @@ export function RailLayout({
                   <div
                     key={idx}
                     onClick={() => {
-                      setLocation(item.path);
+                      if (item.path === "#ai-copilot") {
+                        setShowAiCoPilot(true);
+                      } else {
+                        setLocation(item.path);
+                      }
                       setShowCommandPalette(false);
                       setPaletteQuery("");
                     }}
@@ -600,6 +680,60 @@ export function RailLayout({
           </div>
         </div>
       )}
+
+      {/* AI Operations Dispatch Co-Pilot Modal */}
+      {showAiCoPilot && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-[#0b121f] border border-[#1b2b48] rounded-xl max-w-2xl w-full p-6 shadow-2xl space-y-4 flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-[#1b2b48]">
+              <div className="flex items-center gap-2 text-white font-bold">
+                <Bot size={20} className="text-[#06b6d4] animate-pulse" />
+                <div>
+                  <h3 className="text-base font-bold text-white">RailBlock AI Dispatch Co-Pilot</h3>
+                  <p className="text-xs text-[#738ba8]">
+                    Intelligent Reasoning Engine · Interlocking · 25 kV Traction · CP-SAT
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAiCoPilot(false)}
+                className="text-[#738ba8] hover:text-white font-mono text-sm px-2 py-1 rounded hover:bg-[#132038]"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 min-h-0">
+              <AIChatBox
+                messages={aiMessages}
+                onSendMessage={handleSendAiMessage}
+                isLoading={isAiResponding}
+                placeholder="Ask about traction safety, Form T/351, or CP-SAT optimization..."
+                height={460}
+                suggestedPrompts={[
+                  "Why is PW-305 heavy tamper deferred from Block Window B-1?",
+                  "Explain Form S&T T/351 disconnection notice & 15 km/h NI pilot working.",
+                  "How does CP-SAT prevent high-priority train delays during block possession?",
+                  "Show active depot inventory lead-time constraints for Point Machine replacement.",
+                ]}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating AI Co-Pilot Quick Launcher */}
+      <button
+        type="button"
+        onClick={() => setShowAiCoPilot(true)}
+        className="fixed bottom-6 right-6 z-40 px-3.5 py-2.5 rounded-full bg-gradient-to-r from-[#06b6d4] to-[#3b82f6] text-[#04101e] font-bold shadow-xl shadow-[#06b6d4]/30 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 text-xs border border-[#38bdf8]/40 cursor-pointer"
+        title="Open AI Operations Co-Pilot"
+      >
+        <Bot size={16} className="text-[#04101e]" />
+        <span>AI Co-Pilot</span>
+        <span className="w-2 h-2 rounded-full bg-[#10b981] animate-ping" />
+      </button>
     </div>
   );
 }

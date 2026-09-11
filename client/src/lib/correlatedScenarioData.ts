@@ -221,6 +221,8 @@ export const SEEDED_CORRELATED_TASKS: CorrelatedTask[] = [
     masterBlockId: "MB-C01-003",
     color: "#6ee7f9",
     lane: "B3",
+    conflictRationale:
+      "Task ST-204 (Point Machine 104A): Disconnection Notice S&T T/351 issued. Route Locking active on Route Set R_104 (Down Main Line + Loop). Signals S-10 & S-12 clamped to DANGER. Mandatory 30-min correspondence & obstacle test appended. Start bounded to t=18h due to Agra Depot 110V DC motor supplier lead-time.",
     requiredBOM: [
       {
         partId: "BOM-ST-01",

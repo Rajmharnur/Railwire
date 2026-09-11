@@ -19,14 +19,18 @@
 
 Railway maintenance block planning is **not an administrative calendar problem**. On Indian Railways corridors carrying mixed high-speed passenger services (e.g. *Gatimaan Express*, *Rajdhani*) alongside heavy freight rakes (*BOXN-42*), maintenance planning is a **high-concurrency, physical-constraint engineering problem**.
 
+> 📘 **Full Technical & Mathematical Specification:** See the comprehensive [RailBlock AI PRD](file:///d:/Rail/PRD.md) for complete CP-SAT formulation, Electronic Interlocking (EI) route-locking trees, RDSO Predictive BOM catalogs, and Signal Engineering Manual (SEM) compliance.
+
 ### Common Industry & Hackathon Pitfalls vs. RailBlock AI Countermeasures
 
 | Pitfall in Naive Systems | Why it Fails in Real Railway Operations | RailBlock AI Countermeasure |
 | :--- | :--- | :--- |
-| **Generic Calendar App** | Treats track blocks like Google Calendar meetings; ignores spatial overlap, 25kV traction safety, and headway rules. | **Formal CP-SAT Constraint Engine**: Formulates scheduling as a formal Constraint Satisfaction & Optimization Problem (CSP/COP) with physics and electrical mutex enforcement. |
-| **Siloed Maintenance Planning** | P-Way, TRD, and S&T book separate, uncoordinated track closures, causing 14+ hours of downtime. | **Multi-Department Co-utilization**: Pools concurrent compatible work (e.g., TRD contact wire + P-Way tamping) into unified safe windows. |
+| **Generic Calendar App** | Treats track blocks like Google Calendar meetings; ignores spatial overlap, 25kV traction safety, headway rules, and interlocking trees. | **Formal CP-SAT Constraint Engine**: Formulates scheduling as a formal Constraint Satisfaction & Optimization Problem (CSP/COP) with physics, traction, and route-locking mutex enforcement. |
+| **Siloed Maintenance Planning** | P-Way, TRD, and S&T book separate, uncoordinated track closures, causing 14+ hours of downtime. | **Multi-Department Co-utilization**: Pools concurrent compatible work (e.g., TRD contact wire + P-Way manual gang) into unified safe windows. |
 | **Ignoring Electrical Physics** | Schedules high-voltage machines while overhead equipment (OHE) is de-energized. | **$\text{RequiresElectric} + \text{IsolatesOHE} \le 1$ Mutex**: Guarantees electric machines are never stranded under isolated lines. |
+| **Signalling Route Blindness** | Treats point machine maintenance as a single track-meter closure, ignoring station yard interlocking. | **Route Locking & Junction Mutex**: If point $p$ is disconnected, locks out all converging/diverging routes ($\mathcal{R}_p$), clamping home signals to DANGER. |
 | **Phantom Approvals** | Approves maintenance without verifying if critical spare parts exist at the local depot. | **Inventory Lead-Time Hard Bound**: Enforces $\text{start}_i \ge t_0 + L_i$, triggering advance supplier purchase orders before block grant. |
+| **Skipping Testing Clearance** | Revokes blocks immediately without correspondence testing, risking point failure on first train. | **Mandatory Testing Window**: Appends non-negotiable post-repair testing blocks ($\Delta_i^{\text{test}}$) into block duration before handover. |
 | **Static Schedules** | A 30-minute freight delay causes cascading passenger delays and cancelled blocks. | **Rolling Dynamic Re-solve (<3s)**: Real-time re-optimization dynamically adjusts maintenance windows when disruptions occur. |
 
 ---
@@ -203,16 +207,17 @@ $ npm test
  ✓ shared/railblockMetrics.test.ts (3 tests)
  ✓ server/railblock.metrics.test.ts (3 tests)
  ✓ server/railblockScenario.test.ts (2 tests)
- ✓ server/railblockSolver.test.ts (6 tests)
+ ✓ server/railblockSolver.test.ts (7 tests)
    - Electrical Mutex Enforcement: TRD-101 and PW-305 cannot overlap
    - Diesel Tower Wagon Compatibility: TRD-101 and PW-302 pooled safely
    - Inventory Lead Time Lower Bound: ST-204 start >= parts arrival
+   - S&T Point Machine & Interlocking Route-Locking Rationale
    - Dynamic Rolling Freight Delay Re-solve (<3s)
  ✓ server/auth.logout.test.ts (1 test)
 
  Test Files  5 passed (5)
-      Tests  15 passed (15)
-   Duration  960ms
+      Tests  16 passed (16)
+   Duration  890ms
 ```
 
 ---

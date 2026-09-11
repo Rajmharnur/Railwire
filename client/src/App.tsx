@@ -10,6 +10,8 @@ import WorkOrders from "./pages/WorkOrders";
 import Analytics from "./pages/Analytics";
 import Scenarios from "./pages/Scenarios";
 import CoaSanction from "./pages/CoaSanction";
+import SignalManagement from "./pages/SignalManagement";
+import ComponentShowcase from "./pages/ComponentShowcase";
 
 function Router() {
   return (
@@ -17,9 +19,11 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/corridors" component={Corridors} />
       <Route path="/work-orders" component={WorkOrders} />
+      <Route path="/signals" component={SignalManagement} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/scenarios" component={Scenarios} />
       <Route path="/coa-sanction" component={CoaSanction} />
+      <Route path="/components" component={ComponentShowcase} />
       <Route path="/404" component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

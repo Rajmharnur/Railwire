@@ -283,6 +283,15 @@ export function solveRailBlockPlan(
           `Co-utilized ${group.length} tasks (${departments.join(" + ")}) on ${corridorId} (KM ${masterBlock.startKm}–${masterBlock.endKm}) inside ${maxTaskDuration}m window. Saved ${savedMinutes}m downtime. ${isolatesPower ? "[25kV OHE Isolated — Diesel/Manual gangs only]" : "[25kV Energized]"}`
         );
       }
+
+      if (groupPartsReadyMinute > 0) {
+        const partsTask = group.find((t) => (t.partsReadyHour ?? 0) > 0);
+        if (partsTask) {
+          rationaleNotes.push(
+            `Task ${partsTask.id} (${partsTask.department}): Inventory Lead-Time lower bound enforced. Scheduled at ${Math.floor(scheduledStart / 60)}h${String(scheduledStart % 60).padStart(2, "0")} post supplier parts delivery (partsReadyHour = ${partsTask.partsReadyHour}h).`
+          );
+        }
+      }
     } else {
       // Could not fit in available gaps
       for (const task of group) {
