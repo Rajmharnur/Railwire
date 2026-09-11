@@ -31,6 +31,7 @@ export interface CorrelatedTask {
   conflictRationale?: string;
   color: string;
   requiredBOM: BOMItem[];
+  lane?: "B1" | "B2" | "B3";
 }
 
 export const INITIAL_CORRELATED_INVENTORY: InventoryItem[] = [
@@ -112,6 +113,7 @@ export const SEEDED_CORRELATED_TASKS: CorrelatedTask[] = [
     status: "CO_UTILIZED",
     masterBlockId: "MB-C01-001",
     color: "#f3b454",
+    lane: "B1",
     requiredBOM: [
       {
         partId: "BOM-TRD-01",
@@ -146,6 +148,7 @@ export const SEEDED_CORRELATED_TASKS: CorrelatedTask[] = [
     status: "CO_UTILIZED",
     masterBlockId: "MB-C01-001",
     color: "#b9f227",
+    lane: "B1",
     requiredBOM: [
       {
         partId: "BOM-PW-03",
@@ -180,6 +183,7 @@ export const SEEDED_CORRELATED_TASKS: CorrelatedTask[] = [
     status: "SCHEDULED",
     masterBlockId: "MB-C01-002",
     color: "#b9f227",
+    lane: "B2",
     conflictRationale:
       "Task PW-305 deferred from Block Window B-1: Electrical Mutex Violation. TRD-101 has de-energized OHE 25kV power line between KM 142.0 and 144.5. Electric machinery cannot operate.",
     requiredBOM: [
@@ -216,6 +220,7 @@ export const SEEDED_CORRELATED_TASKS: CorrelatedTask[] = [
     status: "SCHEDULED",
     masterBlockId: "MB-C01-003",
     color: "#6ee7f9",
+    lane: "B3",
     requiredBOM: [
       {
         partId: "BOM-ST-01",

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import {
   Activity,
   AlertOctagon,
@@ -7,6 +7,7 @@ import {
   ArrowUpRight,
   Award,
   Boxes,
+  CalendarClock,
   Check,
   CheckCircle2,
   Clock,
@@ -18,10 +19,14 @@ import {
   FileSpreadsheet,
   FileText,
   Gauge,
+  GripHorizontal,
+  GripVertical,
   HelpCircle,
   Layers,
   Lightbulb,
   ListFilter,
+  Move,
+  MoveHorizontal,
   Play,
   RefreshCw,
   RotateCcw,
@@ -54,7 +59,7 @@ import { InventoryLedgerDrawer } from "@/components/InventoryLedgerDrawer";
 import { PhysicalConflictInspector } from "@/components/PhysicalConflictInspector";
 import { ThreeWayBenchmarkTable } from "@/components/ThreeWayBenchmarkTable";
 import { PitchWalkthroughModal } from "@/components/PitchWalkthroughModal";
-import type { ThreeWayBenchmarkResult, InventoryItem } from "@shared/railblockTypes";
+import type { ThreeWayBenchmarkResult, InventoryItem, TrainSchedule } from "@shared/railblockTypes";
 
 function MetricCard({
   label,
@@ -92,7 +97,11 @@ export default function Home() {
   // Scenario state
   const [tasks, setTasks] = useState<CorrelatedTask[]>(SEEDED_CORRELATED_TASKS);
   const [inventory, setInventory] = useState<InventoryItem[]>(INITIAL_CORRELATED_INVENTORY);
+  const [trains, setTrains] = useState<TrainSchedule[]>(CORRELATED_TRAINS);
+  const [nowMinute, setNowMinute] = useState(260); // 04:20 IST = 260 min
+  const [partsReadyMinute, setPartsReadyMinute] = useState(1080); // 18:00 IST = 1080 min
   const [selectedId, setSelectedId] = useState<string>("PW-305");
+  const [selectedType, setSelectedType] = useState<"task" | "train">("task");
   const [activePlanMode, setActivePlanMode] = useState<"cpsat" | "sjf" | "random">("cpsat");
   const [partsOrdered, setPartsOrdered] = useState(false);
   const [freightDelayActive, setFreightDelayActive] = useState(false);
@@ -110,9 +119,405 @@ export default function Home() {
   const [showInventoryDrawer, setShowInventoryDrawer] = useState(false);
   const [showConflictInspector, setShowConflictInspector] = useState(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState(false);
+  const [reSolveApplied, setReSolveApplied] = useState(false);
 
-  // Active selected task
+  const handleExecuteReSolve = () => {
+    setReSolveApplied(true);
+    setActivePlanMode("cpsat");
+    toast.success("AI Dispatch Resolution Applied: Preempted BCN/E-401 at Loop 3; Green Corridor reserved for 12050 Gatimaan (+24.5m punctuality)", {
+      duration: 5000,
+    });
+  };
+
+  // Active selected item
   const selectedTask = tasks.find((t) => t.id === selectedId) ?? tasks[0];
+  const selectedTrain = trains.find((tr) => tr.id === selectedId) ?? trains[0];
+
+  // Manual drag & repositioning engine
+  interface DragSession {
+    type:
+      | "TASK_MOVE"
+      | "TASK_RESIZE_START"
+      | "TASK_RESIZE_END"
+      | "TRAIN_MOVE"
+      | "TRAIN_RESIZE_END"
+      | "NOW_MARKER"
+      | "PARTS_READY_MARKER";
+    id: string;
+    startX: number;
+    startY: number;
+    initialStartMinute: number;
+    initialDuration?: number;
+    initialExitMinute?: number;
+    initialLane?: "B1" | "B2" | "B3";
+  }
+
+  const [activeDrag, setActiveDrag] = useState<DragSession | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const [hasManualOverrides, setHasManualOverrides] = useState(false);
+
+  // Time format helper (HH:MM IST)
+  const formatTime = (totalMinutes: number) => {
+    const normalized = Math.max(0, Math.min(1440, totalMinutes));
+    const h = Math.floor(normalized / 60);
+    const m = Math.floor(normalized % 60);
+    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")} IST`;
+  };
+
+  // Global window pointer tracking for rock-solid drag across boundaries
+  useEffect(() => {
+    if (!activeDrag) return;
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!canvasRef.current) return;
+      const rect = canvasRef.current.getBoundingClientRect();
+      const deltaX = e.clientX - activeDrag.startX;
+      const deltaMinutes = (deltaX / rect.width) * 1440;
+      const snapInterval = e.shiftKey ? 1 : 15;
+      const snappedDelta = Math.round(deltaMinutes / snapInterval) * snapInterval;
+
+      setHasManualOverrides(true);
+
+      if (activeDrag.type === "TASK_MOVE") {
+        const duration = activeDrag.initialDuration ?? 120;
+        const newStart = Math.max(0, Math.min(1440 - duration, activeDrag.initialStartMinute + snappedDelta));
+
+        // Check vertical position for lane shifting
+        const relY = e.clientY - rect.top;
+        let newLane: "B1" | "B2" | "B3" = activeDrag.initialLane ?? "B2";
+        if (relY < 165) newLane = "B1";
+        else if (relY < 215) newLane = "B2";
+        else newLane = "B3";
+
+        setTasks((prev) =>
+          prev.map((t) => (t.id === activeDrag.id ? { ...t, startMinute: newStart, lane: newLane } : t))
+        );
+      } else if (activeDrag.type === "TASK_RESIZE_START") {
+        const originalEnd = activeDrag.initialStartMinute + (activeDrag.initialDuration ?? 120);
+        const newStart = Math.max(0, Math.min(originalEnd - 30, activeDrag.initialStartMinute + snappedDelta));
+        const newDuration = originalEnd - newStart;
+        setTasks((prev) =>
+          prev.map((t) => (t.id === activeDrag.id ? { ...t, startMinute: newStart, durationMinutes: newDuration } : t))
+        );
+      } else if (activeDrag.type === "TASK_RESIZE_END") {
+        const newDuration = Math.max(30, Math.min(480, (activeDrag.initialDuration ?? 120) + snappedDelta));
+        setTasks((prev) =>
+          prev.map((t) => (t.id === activeDrag.id ? { ...t, durationMinutes: newDuration } : t))
+        );
+      } else if (activeDrag.type === "TRAIN_MOVE") {
+        const dur = (activeDrag.initialExitMinute ?? 60) - activeDrag.initialStartMinute;
+        const newEntry = Math.max(0, Math.min(1440 - dur, activeDrag.initialStartMinute + snappedDelta));
+        setTrains((prev) =>
+          prev.map((tr) => (tr.id === activeDrag.id ? { ...tr, entryMinute: newEntry, exitMinute: newEntry + dur } : tr))
+        );
+      } else if (activeDrag.type === "TRAIN_RESIZE_END") {
+        const newExit = Math.max(activeDrag.initialStartMinute + 15, Math.min(1440, (activeDrag.initialExitMinute ?? 60) + snappedDelta));
+        setTrains((prev) =>
+          prev.map((tr) => (tr.id === activeDrag.id ? { ...tr, exitMinute: newExit } : tr))
+        );
+      } else if (activeDrag.type === "NOW_MARKER") {
+        const newNow = Math.max(0, Math.min(1440, activeDrag.initialStartMinute + snappedDelta));
+        setNowMinute(newNow);
+      } else if (activeDrag.type === "PARTS_READY_MARKER") {
+        const newParts = Math.max(0, Math.min(1440, activeDrag.initialStartMinute + snappedDelta));
+        setPartsReadyMinute(newParts);
+        const readyHour = Math.round(newParts / 60);
+        setTasks((prev) =>
+          prev.map((t) => (t.id === "ST-204" ? { ...t, partsReadyHour: readyHour } : t))
+        );
+      }
+    };
+
+    const onPointerUp = () => {
+      const movedItem = activeDrag.type.startsWith("TRAIN")
+        ? trains.find((tr) => tr.id === activeDrag.id)
+        : tasks.find((t) => t.id === activeDrag.id);
+
+      if (movedItem && "title" in movedItem) {
+        toast.info(`Manual Position Updated: ${movedItem.id}`, {
+          description: `Scheduled at ${formatTime(movedItem.startMinute)} – ${formatTime(
+            movedItem.startMinute + movedItem.durationMinutes
+          )} in Block ${movedItem.lane || "B1"}`,
+        });
+      } else if (movedItem && "trainNumber" in movedItem) {
+        toast.info(`Train Timetable Adjusted: ${movedItem.trainNumber}`, {
+          description: `Corridor slot: ${formatTime(movedItem.entryMinute)} – ${formatTime(movedItem.exitMinute)}`,
+        });
+      }
+      setActiveDrag(null);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
+  }, [activeDrag, tasks, trains]);
+
+  // Clash & conflict detection helpers
+  const checkPowerClash = useCallback((task: CorrelatedTask, allTasks: CorrelatedTask[]) => {
+    if (!task.requiresElectricPower) return false;
+    const oheTask = allTasks.find((t) => t.id !== task.id && t.isolatesOhe);
+    if (!oheTask) return false;
+    const taskStart = task.startMinute;
+    const taskEnd = task.startMinute + task.durationMinutes;
+    const oheStart = oheTask.startMinute;
+    const oheEnd = oheTask.startMinute + oheTask.durationMinutes;
+    return taskStart < oheEnd && taskEnd > oheStart;
+  }, []);
+
+  const checkStockoutClash = useCallback((task: CorrelatedTask, partsInStock: boolean) => {
+    if (partsInStock) return false;
+    if (!task.partsReadyHour || task.partsReadyHour === 0) return false;
+    const partsReadyMin = task.partsReadyHour * 60;
+    return task.startMinute < partsReadyMin;
+  }, []);
+
+  const checkTrainConflict = useCallback((task: CorrelatedTask, currentTrains: TrainSchedule[]) => {
+    const taskStart = task.startMinute;
+    const taskEnd = task.startMinute + task.durationMinutes;
+    return currentTrains.some((tr) => taskStart < tr.exitMinute && taskEnd > tr.entryMinute);
+  }, []);
+
+  // Handlers for manual repositioning of tasks
+  const handleShiftTask = (taskId: string, deltaMinutes: number) => {
+    setHasManualOverrides(true);
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        const newStart = Math.max(0, Math.min(1440 - t.durationMinutes, t.startMinute + deltaMinutes));
+        return { ...t, startMinute: newStart };
+      })
+    );
+  };
+
+  const handleSetTaskStart = (taskId: string, newStartMinute: number) => {
+    setHasManualOverrides(true);
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        const clamped = Math.max(0, Math.min(1440 - t.durationMinutes, newStartMinute));
+        return { ...t, startMinute: clamped };
+      })
+    );
+  };
+
+  const handleSetTaskDuration = (taskId: string, newDuration: number) => {
+    setHasManualOverrides(true);
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        const clampedDuration = Math.max(30, Math.min(480, newDuration));
+        const clampedStart = Math.min(t.startMinute, 1440 - clampedDuration);
+        return { ...t, durationMinutes: clampedDuration, startMinute: clampedStart };
+      })
+    );
+  };
+
+  const handleSetTaskLane = (taskId: string, newLane: "B1" | "B2" | "B3") => {
+    setHasManualOverrides(true);
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, lane: newLane } : t))
+    );
+    toast.info(`${taskId} reassigned to Block ${newLane}`);
+  };
+
+  // Handlers for train manual repositioning
+  const handleShiftTrain = (trainId: string, deltaMinutes: number) => {
+    setHasManualOverrides(true);
+    setTrains((prev) =>
+      prev.map((tr) => {
+        if (tr.id !== trainId) return tr;
+        const dur = tr.exitMinute - tr.entryMinute;
+        const newEntry = Math.max(0, Math.min(1440 - dur, tr.entryMinute + deltaMinutes));
+        return { ...tr, entryMinute: newEntry, exitMinute: newEntry + dur };
+      })
+    );
+  };
+
+  const handleSetTrainEntry = (trainId: string, newEntry: number) => {
+    setHasManualOverrides(true);
+    setTrains((prev) =>
+      prev.map((tr) => {
+        if (tr.id !== trainId) return tr;
+        const dur = tr.exitMinute - tr.entryMinute;
+        const clamped = Math.max(0, Math.min(1440 - dur, newEntry));
+        return { ...tr, entryMinute: clamped, exitMinute: clamped + dur };
+      })
+    );
+  };
+
+  const handleSetTrainDuration = (trainId: string, newDuration: number) => {
+    setHasManualOverrides(true);
+    setTrains((prev) =>
+      prev.map((tr) => {
+        if (tr.id !== trainId) return tr;
+        const clampedDur = Math.max(15, Math.min(180, newDuration));
+        return { ...tr, exitMinute: tr.entryMinute + clampedDur };
+      })
+    );
+  };
+
+  const handleResetToOptimal = () => {
+    setTasks(SEEDED_CORRELATED_TASKS);
+    setTrains(CORRELATED_TRAINS);
+    setNowMinute(260);
+    setPartsReadyMinute(1080);
+    setHasManualOverrides(false);
+    setActivePlanMode("cpsat");
+    toast.success("Schedule Reset to CP-SAT Optimal Dispatch Plan", {
+      description: "TRD-101 + PW-302 pooled in Block B-1; PW-305 at 06:40 IST; ST-204 at 18:30 IST; Train slots restored.",
+    });
+  };
+
+  const handleSnapToSafeGap = (taskId: string) => {
+    if (taskId === "PW-305") {
+      handleSetTaskStart(taskId, 400);
+      handleSetTaskLane(taskId, "B2");
+      toast.success("PW-305 Snapped to Safe Energized Window (06:40 IST)");
+    } else if (taskId === "ST-204") {
+      handleSetTaskStart(taskId, 1110);
+      handleSetTaskLane(taskId, "B3");
+      toast.success("ST-204 Snapped to Post-Delivery Window (18:30 IST)");
+    } else if (taskId === "TRD-101" || taskId === "PW-302") {
+      handleSetTaskStart(taskId, 120);
+      handleSetTaskLane(taskId, "B1");
+      toast.success(`${taskId} Snapped to Co-utilized Block B-1 (02:00 IST)`);
+    }
+  };
+
+  // Helper for computing top position of tasks across track lanes
+  const getTaskTopPosition = (task: CorrelatedTask, allTasks: CorrelatedTask[]) => {
+    const lane = task.lane || (task.id === "ST-204" ? "B3" : task.id === "PW-305" ? "B2" : "B1");
+    if (lane === "B1") {
+      const b1Tasks = allTasks.filter(
+        (t) => (t.lane || (t.id === "ST-204" ? "B3" : t.id === "PW-305" ? "B2" : "B1")) === "B1"
+      );
+      const idx = b1Tasks.findIndex((t) => t.id === task.id);
+      return idx <= 0 ? 94 : 136;
+    }
+    if (lane === "B2") return 184;
+    return 236; // B3
+  };
+
+  // Drag initiation helpers
+  const startTaskDrag = (e: React.PointerEvent, task: CorrelatedTask) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedId(task.id);
+    setSelectedType("task");
+    setActiveDrag({
+      type: "TASK_MOVE",
+      id: task.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialStartMinute: task.startMinute,
+      initialDuration: task.durationMinutes,
+      initialLane: task.lane || (task.id === "ST-204" ? "B3" : task.id === "PW-305" ? "B2" : "B1"),
+    });
+  };
+
+  const startTaskResizeStart = (e: React.PointerEvent, task: CorrelatedTask) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedId(task.id);
+    setSelectedType("task");
+    setActiveDrag({
+      type: "TASK_RESIZE_START",
+      id: task.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialStartMinute: task.startMinute,
+      initialDuration: task.durationMinutes,
+    });
+  };
+
+  const startTaskResizeEnd = (e: React.PointerEvent, task: CorrelatedTask) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedId(task.id);
+    setSelectedType("task");
+    setActiveDrag({
+      type: "TASK_RESIZE_END",
+      id: task.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialStartMinute: task.startMinute,
+      initialDuration: task.durationMinutes,
+    });
+  };
+
+  const startTrainDrag = (e: React.PointerEvent, train: TrainSchedule) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedId(train.id);
+    setSelectedType("train");
+    setActiveDrag({
+      type: "TRAIN_MOVE",
+      id: train.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialStartMinute: train.entryMinute,
+      initialExitMinute: train.exitMinute,
+    });
+  };
+
+  const startTrainResizeEnd = (e: React.PointerEvent, train: TrainSchedule) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedId(train.id);
+    setSelectedType("train");
+    setActiveDrag({
+      type: "TRAIN_RESIZE_END",
+      id: train.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      initialStartMinute: train.entryMinute,
+      initialExitMinute: train.exitMinute,
+    });
+  };
+
+  const startNowMarkerDrag = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveDrag({
+      type: "NOW_MARKER",
+      id: "NOW",
+      startX: e.clientX,
+      startY: e.clientY,
+      initialStartMinute: nowMinute,
+    });
+  };
+
+  const startPartsMarkerDrag = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveDrag({
+      type: "PARTS_READY_MARKER",
+      id: "PARTS_READY",
+      startX: e.clientX,
+      startY: e.clientY,
+      initialStartMinute: partsReadyMinute,
+    });
+  };
+
+  // Dynamic B-1 Bracket Bounds
+  const trdTask = tasks.find((t) => t.id === "TRD-101");
+  const pw302Task = tasks.find((t) => t.id === "PW-302");
+  const b1Start = trdTask && pw302Task ? Math.min(trdTask.startMinute, pw302Task.startMinute) : 120;
+  const b1End =
+    trdTask && pw302Task
+      ? Math.max(
+          trdTask.startMinute + trdTask.durationMinutes,
+          pw302Task.startMinute + pw302Task.durationMinutes
+        )
+      : 330;
+  const b1LeftPercent = (b1Start / (24 * 60)) * 100;
+  const b1WidthPercent = ((b1End - b1Start) / (24 * 60)) * 100;
 
   // Benchmark data
   const benchmarkData: ThreeWayBenchmarkResult = useMemo(() => {
@@ -384,6 +789,63 @@ export default function Home() {
         </div>
       </div>
 
+      {/* Stitch Rapid Re-Solve AI Optimization Banner */}
+      <div className="stitch-resolve-banner">
+        <div className="resolve-copy">
+          <div className="resolve-icon">
+            <Sparkles size={18} />
+          </div>
+          <div>
+            <div className="resolve-title">
+              <span>{reSolveApplied ? "✓ AI DISPATCH RESOLUTION LOCKED // ACTIVE IN INTERLOCKING" : "AI DISPATCH RESOLUTION // AUTO-RECOMMENDATION"}</span>
+              <span className="resolve-savings">+24.5 MIN SECTION PUNCTUALITY</span>
+            </div>
+            <p className="resolve-desc">
+              {reSolveApplied ? (
+                <>
+                  <b>Signal Set & Route Secured:</b> Freight rake <b>BCN/E-401</b> safely held at <b>Mathura Loop 3</b>. <b>12050 Gatimaan Express</b> granted uninterrupted green wave through KM 142–145.
+                </>
+              ) : (
+                <>
+                  Preempt Rake <b>BCN/E-401</b> at Mathura Loop Line 3 for 11 mins to grant uninterrupted Green Corridor to <b>12050 Gatimaan Express</b>. Physical and 25kV traction constraints verified.
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="resolve-actions">
+          {!reSolveApplied ? (
+            <button
+              type="button"
+              className="btn-violet cursor-pointer"
+              onClick={handleExecuteReSolve}
+            >
+              <Zap size={13} /> EXECUTE RE-SOLVE (AUTO-SIGNAL)
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn-outline-cyan cursor-pointer"
+              onClick={() => {
+                setReSolveApplied(false);
+                toast.info("Dispatch Resolution returned to standard advisory queue");
+              }}
+            >
+              <RotateCcw size={13} /> RESET ADVISORY
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="btn-outline-cyan cursor-pointer"
+            onClick={() => setShowConflictInspector(true)}
+          >
+            <Route size={13} /> SIMULATE TRAJECTORY
+          </button>
+        </div>
+      </div>
+
       {/* Top 4 Metrics Strip */}
       <section className="metric-grid">
         <MetricCard
@@ -525,19 +987,39 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Department Filter Chips */}
-          <div className="filter-row">
-            <span className="filter-label">Filter Department:</span>
-            {["all", "TRD", "P-WAY", "S&T"].map((item) => (
-              <button
-                type="button"
-                key={item}
-                className={`filter-chip ${filter === item ? "selected" : ""}`}
-                onClick={() => setFilter(item)}
-              >
-                {item === "all" ? "All Divisions" : item}
-              </button>
-            ))}
+          {/* Department Filter Chips & Manual Dispatcher Controls */}
+          <div className="filter-row flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="filter-label">Filter Department:</span>
+              {["all", "TRD", "P-WAY", "S&T"].map((item) => (
+                <button
+                  type="button"
+                  key={item}
+                  className={`filter-chip ${filter === item ? "selected" : ""}`}
+                  onClick={() => setFilter(item)}
+                >
+                  {item === "all" ? "All Divisions" : item}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              <span className="text-[11px] font-mono text-[#8ea4c2] flex items-center gap-1.5 bg-[#091122] px-2.5 py-1 rounded border border-[#1e2e48]">
+                <MoveHorizontal size={13} className="text-[#06b6d4]" />
+                <span>Drag task bars horizontally on canvas or adjust in Inspector</span>
+              </span>
+              {hasManualOverrides && (
+                <button
+                  type="button"
+                  onClick={handleResetToOptimal}
+                  className="px-2.5 py-1 rounded bg-[#0e1726] hover:bg-[#16233b] border border-[#06b6d4]/50 text-[#22d3ee] text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                  title="Reset all tasks to mathematical CP-SAT solver optimal"
+                >
+                  <RotateCcw size={12} />
+                  <span>Reset to AI Optimal</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Timeline View */}
@@ -559,11 +1041,6 @@ export default function Home() {
                 {Array.from({ length: 9 }).map((_, i) => (
                   <i key={i} style={{ left: `${i * 12.5}%` }} />
                 ))}
-              </div>
-
-              {/* Now Marker */}
-              <div className="now-line" style={{ left: "18%" }}>
-                <span>NOW (04:20 IST)</span>
               </div>
 
               {/* Track Lane Labels */}
@@ -590,116 +1067,196 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Canvas Items */}
-              <div className="track-canvas" role="region" aria-label="Master Correlated Gantt Canvas">
-                {/* Trains */}
-                {CORRELATED_TRAINS.map((train) => {
+              {/* Canvas Items with Interactive Drag to Move */}
+              <div
+                ref={canvasRef}
+                className={`track-canvas ${activeDrag ? "drag-active" : ""}`}
+                role="region"
+                aria-label="Master Correlated Gantt Canvas"
+              >
+                {/* Draggable NOW Simulation Marker */}
+                <div
+                  className="absolute top-0 bottom-0 z-20 pointer-events-auto cursor-ew-resize group"
+                  style={{ left: `${(nowMinute / 1440) * 100}%` }}
+                  onPointerDown={startNowMarkerDrag}
+                  title="Click and drag to scrub simulation clock (NOW)"
+                >
+                  <div className="w-[2px] h-full bg-red-500/80 group-hover:bg-red-400 group-hover:w-[3px] transition-all shadow-[0_0_8px_rgba(239,68,68,0.6)]" />
+                  <div className="absolute top-1 -left-12 px-2 py-0.5 rounded bg-red-950/95 border border-red-500/60 text-[9px] font-mono text-red-300 font-bold whitespace-nowrap shadow-xl flex items-center gap-1 group-hover:scale-105 transition-transform select-none">
+                    <Clock size={10} className="text-red-400" />
+                    <span>NOW ({formatTime(nowMinute).replace(" IST", "")})</span>
+                    <GripVertical size={9} className="opacity-60" />
+                  </div>
+                </div>
+
+                {/* Draggable t_parts_ready Delivery Marker */}
+                <div
+                  className="absolute top-0 bottom-0 z-20 pointer-events-auto cursor-ew-resize group"
+                  style={{ left: `${(partsReadyMinute / 1440) * 100}%` }}
+                  onPointerDown={startPartsMarkerDrag}
+                  title="Click and drag to adjust parts delivery ETA (t_parts_ready)"
+                >
+                  <div className="w-[2px] h-full border-l-2 border-dashed border-cyan-400 group-hover:border-cyan-300 transition-all shadow-[0_0_8px_rgba(6,182,212,0.5)]" />
+                  <div className="absolute top-1 left-1.5 px-2 py-0.5 rounded bg-cyan-950/95 border border-cyan-500/60 text-[9px] font-mono text-cyan-300 font-bold whitespace-nowrap shadow-xl flex items-center gap-1 group-hover:scale-105 transition-transform select-none">
+                    <Boxes size={10} className="text-cyan-400" />
+                    <span>t_parts ({formatTime(partsReadyMinute).replace(" IST", "")})</span>
+                    <GripVertical size={9} className="opacity-60" />
+                  </div>
+                </div>
+
+                {/* Interactive Trains on Passenger & Freight Lane */}
+                {trains.map((train) => {
                   let leftPercent = (train.entryMinute / (24 * 60)) * 100;
                   const durationPercent = ((train.exitMinute - train.entryMinute) / (24 * 60)) * 100;
-
-                  // If freight delay active
                   if (freightDelayActive && train.id === "TR-BOXN-42") {
                     leftPercent += (freightDelayMinutes / (24 * 60)) * 100;
                   }
+                  const isSelected = selectedType === "train" && selectedId === train.id;
+                  const isDraggingThis = activeDrag?.type.startsWith("TRAIN") && activeDrag.id === train.id;
 
                   return (
                     <div
                       key={train.id}
-                      className="timeline-item train-item"
+                      onPointerDown={(e) => startTrainDrag(e, train)}
+                      onClick={() => {
+                        setSelectedId(train.id);
+                        setSelectedType("train");
+                      }}
+                      className={`timeline-item train-item cursor-grab active:cursor-grabbing select-none group transition-shadow ${
+                        isSelected ? "ring-2 ring-[#06b6d4] shadow-xl z-20 brightness-110" : ""
+                      } ${isDraggingThis ? "ring-2 ring-white shadow-2xl opacity-90 z-30" : ""}`}
                       style={{
                         left: `${Math.min(95, leftPercent)}%`,
                         width: `${Math.max(5, durationPercent)}%`,
-                        backgroundColor: train.type === "FR8" ? "#8b5cf6" : "#0284c7",
+                        top: "52px",
+                        backgroundColor: train.type === "FR8" ? "#7c3aed" : train.type === "RAJ" ? "#0284c7" : "#0369a1",
+                        touchAction: "none",
                       }}
-                      title={`${train.name} (${train.trainNumber}) · Priority ${train.priority}`}
+                      title={`Drag left/right to reschedule slot: ${train.name} (${train.trainNumber}) · ${formatTime(train.entryMinute)} – ${formatTime(train.exitMinute)}`}
                     >
-                      <span className="train-id">{train.trainNumber}</span>
-                      <span>{train.name.split(" ")[0]}</span>
+                      <GripHorizontal size={10} className="shrink-0 text-white/60 group-hover:text-white" />
+                      <span className="train-id font-bold">{train.trainNumber}</span>
+                      <span className="truncate">{train.name.split(" ")[0]}</span>
                       <em>{train.type}</em>
+
+                      {/* Right edge duration resize handle */}
+                      <div
+                        onPointerDown={(e) => startTrainResizeEnd(e, train)}
+                        className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/40 rounded-r transition-colors"
+                        title="Drag edge to lengthen/shorten traversal headway"
+                      />
                     </div>
                   );
                 })}
 
-                {/* Tasks */}
+                {/* Interactive Tasks with Drag-to-Position, Edge-Resize, and Dynamic Clash Detection */}
                 {visibleTasks.map((task) => {
-                  let leftPercent = (task.startMinute / (24 * 60)) * 100;
+                  const leftPercent = (task.startMinute / (24 * 60)) * 100;
                   const widthPercent = (task.durationMinutes / (24 * 60)) * 100;
+                  const isSelected = selectedType === "task" && selectedId === task.id;
+                  const isDraggingThis = activeDrag?.id === task.id;
 
-                  // If Random mode, put PW-305 inside TRD-101's window to show clash
-                  if (activePlanMode === "random" && task.id === "PW-305") {
-                    leftPercent = ((tasks.find((t) => t.id === "TRD-101")?.startMinute ?? 120) / (24 * 60)) * 100 + 2;
-                  }
-                  // If Random mode, dispatch ST-204 at 2h to show stockout
-                  if (activePlanMode === "random" && task.id === "ST-204") {
-                    leftPercent = (120 / (24 * 60)) * 100;
-                  }
+                  const isClashing = checkPowerClash(task, tasks);
+                  const isStockoutClash = checkStockoutClash(task, partsOrdered);
+                  const isTrainConflict = checkTrainConflict(task, trains);
+                  const hasConflict = isClashing || isStockoutClash || isTrainConflict;
 
-                  // If SJF mode, put ST-204 first at 1h
-                  if (activePlanMode === "sjf" && task.id === "ST-204") {
-                    leftPercent = (80 / (24 * 60)) * 100;
-                  }
-
-                  const isClashing =
-                    activePlanMode === "random" &&
-                    task.id === "PW-305";
-
-                  const isStockoutClash =
-                    (activePlanMode === "random" || activePlanMode === "sjf") &&
-                    task.id === "ST-204" &&
-                    !partsOrdered;
+                  const topPosition = getTaskTopPosition(task, tasks);
 
                   return (
-                    <button
-                      type="button"
+                    <div
                       key={task.id}
-                      onClick={() => setSelectedId(task.id)}
-                      className={`timeline-item task-item ${selectedId === task.id ? "selected" : ""} ${
-                        isClashing || isStockoutClash ? "ring-2 ring-red-500 bg-red-950/40" : ""
-                      }`}
-                      style={{
-                        left: `${leftPercent}%`,
-                        width: `${Math.max(6, widthPercent)}%`,
-                        borderColor: isClashing || isStockoutClash ? "#ef4444" : task.color,
-                        background: isClashing || isStockoutClash ? "#7f1d1d40" : `${task.color}25`,
-                      }}
+                      className="contents"
                     >
-                      <span
-                        className="task-bar-dot"
-                        style={{ background: isClashing || isStockoutClash ? "#ef4444" : task.color }}
-                      />
-                      <span>{task.id}</span>
-                      <em>
-                        {isClashing
-                          ? "POWER CLASH!"
-                          : isStockoutClash
-                          ? "STOCKOUT!"
-                          : task.status === "CO_UTILIZED"
-                          ? "POOLED"
-                          : task.department}
-                      </em>
-                    </button>
+                      {/* Live floating tooltip during drag */}
+                      {isDraggingThis && (
+                        <div
+                          className="absolute -top-7 px-2.5 py-0.5 rounded bg-[#070e1d] border border-[#06b6d4] text-[#22d3ee] font-mono text-[10px] font-bold whitespace-nowrap shadow-2xl z-40 pointer-events-none flex items-center gap-1.5"
+                          style={{ left: `${leftPercent}%` }}
+                        >
+                          <Move size={10} />
+                          <span>{task.id}: {formatTime(task.startMinute)} – {formatTime(task.startMinute + task.durationMinutes)}</span>
+                          <span className="text-white/60">({(task.durationMinutes / 60).toFixed(1)}h · Block {task.lane || "B1"})</span>
+                        </div>
+                      )}
+
+                      <div
+                        onPointerDown={(e) => startTaskDrag(e, task)}
+                        onClick={() => {
+                          setSelectedId(task.id);
+                          setSelectedType("task");
+                        }}
+                        className={`timeline-item task-item cursor-grab active:cursor-grabbing select-none transition-shadow group ${
+                          isSelected ? "selected ring-2 ring-[#06b6d4]" : ""
+                        } ${
+                          hasConflict
+                            ? "ring-2 ring-red-500 bg-red-950/50"
+                            : ""
+                        } ${isDraggingThis ? "opacity-90 shadow-2xl ring-2 ring-white z-30" : ""}`}
+                        style={{
+                          left: `${leftPercent}%`,
+                          width: `${Math.max(6, widthPercent)}%`,
+                          top: `${topPosition}px`,
+                          borderColor: hasConflict ? "#ef4444" : task.color,
+                          background:
+                            hasConflict ? "#7f1d1d40" : `${task.color}25`,
+                          touchAction: "none",
+                        }}
+                        title={`Drag left/right to move slot; drag edges to adjust duration: ${task.id} (${formatTime(task.startMinute)} – ${formatTime(
+                          task.startMinute + task.durationMinutes
+                        )})`}
+                      >
+                        {/* Left edge duration resize handle */}
+                        <div
+                          onPointerDown={(e) => startTaskResizeStart(e, task)}
+                          className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/40 rounded-l transition-colors z-10"
+                          title="Drag left edge to adjust start time"
+                        />
+
+                        <GripVertical size={11} className="text-[#647b99] group-hover:text-white shrink-0 opacity-70 group-hover:opacity-100" />
+                        <span
+                          className="task-bar-dot"
+                          style={{
+                            background:
+                              hasConflict ? "#ef4444" : task.color,
+                          }}
+                        />
+                        <span className="font-bold">{task.id}</span>
+                        <em>
+                          {isClashing
+                            ? "POWER CLASH!"
+                            : isStockoutClash
+                            ? "STOCKOUT!"
+                            : isTrainConflict
+                            ? "TRAIN CLASH!"
+                            : task.status === "CO_UTILIZED"
+                            ? "POOLED"
+                            : task.department}
+                        </em>
+
+                        {/* Right edge duration resize handle */}
+                        <div
+                          onPointerDown={(e) => startTaskResizeEnd(e, task)}
+                          className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-white/40 rounded-r transition-colors z-10"
+                          title="Drag right edge to adjust possession duration"
+                        />
+                      </div>
+                    </div>
                   );
                 })}
 
-                {/* Co-utilized Master Block Bracket (B-1) */}
-                {activePlanMode === "cpsat" && (
-                  <div
-                    className="shared-bracket"
-                    style={{ left: `${(120 / (24 * 60)) * 100}%`, width: `${(210 / (24 * 60)) * 100}%` }}
-                  >
-                    <span>
-                      <ZapOff size={11} /> BLOCK B-1: TRD-101 + PW-302 (25kV ISOLATED · 3.5h)
-                    </span>
-                  </div>
-                )}
-
-                {/* Parts Ready Marker */}
+                {/* Co-utilized Master Block Bracket (B-1) dynamically tracking pooled tasks */}
                 <div
-                  className="absolute top-0 bottom-0 border-l-2 border-dashed border-cyan-400 z-10 pointer-events-none"
-                  style={{ left: `${(18 / 24) * 100}%` }}
+                  className="shared-bracket transition-all duration-150"
+                  style={{
+                    left: `${b1LeftPercent}%`,
+                    width: `${Math.max(6, b1WidthPercent)}%`,
+                    top: "84px",
+                    height: "88px",
+                  }}
                 >
-                  <span className="absolute -top-1 left-1.5 px-2 py-0.5 rounded bg-cyan-950/90 border border-cyan-500/40 text-[10px] font-mono text-cyan-300 font-bold whitespace-nowrap">
-                    t_parts_ready (18:00 IST)
+                  <span>
+                    <ZapOff size={11} /> BLOCK B-1: TRD-101 + PW-302 (25kV ISOLATED · {((b1End - b1Start) / 60).toFixed(1)}h)
                   </span>
                 </div>
               </div>
@@ -733,14 +1290,17 @@ export default function Home() {
           <div className="panel-header inspector-head">
             <div>
               <div className="panel-kicker">
-                <span className="kicker-line" /> PHYSICAL & INVENTORY RATIONALE
+                <span className="kicker-line" /> {selectedType === "train" ? "TRAIN TIMETABLE & DISPATCH" : "PHYSICAL & INVENTORY RATIONALE"}
               </div>
-              <h2>Decision Detail</h2>
+              <h2>{selectedType === "train" ? "Train Slot Dispatch" : "Decision Detail"}</h2>
             </div>
             <button
               type="button"
               className="icon-button"
-              onClick={() => setSelectedId("PW-305")}
+              onClick={() => {
+                setSelectedType("task");
+                setSelectedId("PW-305");
+              }}
               title="Select PW-305"
             >
               <X size={16} />
@@ -748,41 +1308,386 @@ export default function Home() {
           </div>
 
           <div className="inspector-content">
-            {/* Task Card */}
-            <div className="selected-task">
-              <div
-                className="selected-icon"
-                style={{ background: `${selectedTask.color}20`, color: selectedTask.color }}
-              >
-                {selectedTask.requiresElectricPower ? (
-                  <Zap size={20} />
-                ) : selectedTask.isolatesOhe ? (
-                  <ZapOff size={20} />
-                ) : (
-                  <Route size={20} />
-                )}
-              </div>
-
-              <div className="selected-title">
-                <div className="flex items-center gap-2">
-                  <h3>{selectedTask.title}</h3>
-                  <Pill
-                    tone={
-                      selectedTask.id === "PW-305"
-                        ? "amber"
-                        : selectedTask.status === "CO_UTILIZED"
-                        ? "lime"
-                        : "cyan"
-                    }
-                  >
-                    {selectedTask.id === "PW-305" ? "MUTEX DEFERRED" : selectedTask.status}
-                  </Pill>
+            {selectedType === "train" && selectedTrain ? (
+              <div className="space-y-4">
+                {/* Train Card Header */}
+                <div className="selected-task">
+                  <div className="selected-icon bg-[#0284c7]/20 text-[#38bdf8]">
+                    <TrainFront size={22} />
+                  </div>
+                  <div className="selected-title">
+                    <div className="flex items-center gap-2">
+                      <h3>{selectedTrain.trainNumber} · {selectedTrain.name}</h3>
+                      <Pill tone={selectedTrain.type === "FR8" ? "amber" : "cyan"}>
+                        {selectedTrain.type}
+                      </Pill>
+                    </div>
+                    <p>
+                      {selectedTrain.corridorId} · Priority {selectedTrain.priority} · {selectedTrain.canBeRescheduled ? "Reschedulable Slot" : "Superfast Fixed Path"}
+                    </p>
+                  </div>
                 </div>
-                <p>
-                  {selectedTask.id} · {selectedTask.department} · {selectedTask.section}
-                </p>
+
+                {/* Manual Train Dispatch Card */}
+                <div className="p-3.5 rounded-xl bg-[#091224] border border-[#1e3050] space-y-3 shadow-xl">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#22d3ee] flex items-center gap-1.5 font-mono">
+                      <MoveHorizontal size={14} /> MANUAL TIMETABLE POSITION
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#0a182e] text-[#38bdf8] border border-[#06b6d4]/30 font-bold">
+                      {formatTime(selectedTrain.entryMinute)} – {formatTime(selectedTrain.exitMinute)}
+                    </span>
+                  </div>
+
+                  {/* Entry Time Slider */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-[#94a3b8] font-mono">
+                      <span>Corridor Entry Time</span>
+                      <span className="text-white font-bold">{formatTime(selectedTrain.entryMinute)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1440 - (selectedTrain.exitMinute - selectedTrain.entryMinute)}
+                      step={15}
+                      value={selectedTrain.entryMinute}
+                      onChange={(e) => handleSetTrainEntry(selectedTrain.id, parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-[#142036] rounded-lg appearance-none cursor-pointer accent-[#06b6d4]"
+                    />
+                    <div className="flex items-center justify-between text-[9px] text-[#526682] font-mono">
+                      <span>00:00</span>
+                      <span>06:00</span>
+                      <span>12:00</span>
+                      <span>18:00</span>
+                      <span>24:00</span>
+                    </div>
+                  </div>
+
+                  {/* Nudge Buttons */}
+                  <div className="grid grid-cols-4 gap-1.5 pt-1 font-mono text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => handleShiftTrain(selectedTrain.id, -60)}
+                      className="px-1.5 py-1 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] transition cursor-pointer"
+                      title="Advance by 1 hour"
+                    >
+                      -1 hr
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShiftTrain(selectedTrain.id, -15)}
+                      className="px-1.5 py-1 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] transition cursor-pointer"
+                      title="Advance by 15 mins"
+                    >
+                      -15m
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShiftTrain(selectedTrain.id, 15)}
+                      className="px-1.5 py-1 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] transition cursor-pointer"
+                      title="Delay by 15 mins"
+                    >
+                      +15m
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShiftTrain(selectedTrain.id, 60)}
+                      className="px-1.5 py-1 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] transition cursor-pointer"
+                      title="Delay by 1 hour"
+                    >
+                      +1 hr
+                    </button>
+                  </div>
+
+                  {/* Traversal Duration */}
+                  <div className="pt-2 border-t border-[#16233b] flex items-center justify-between text-xs font-mono">
+                    <span className="text-[#8ea4c2] text-[11px]">Headway Window:</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSetTrainDuration(selectedTrain.id, (selectedTrain.exitMinute - selectedTrain.entryMinute) - 15)}
+                        className="px-2 py-0.5 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] text-xs cursor-pointer"
+                      >
+                        -15m
+                      </button>
+                      <span className="text-white font-bold px-1 text-[11px]">
+                        {selectedTrain.exitMinute - selectedTrain.entryMinute} mins
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleSetTrainDuration(selectedTrain.id, (selectedTrain.exitMinute - selectedTrain.entryMinute) + 15)}
+                        className="px-2 py-0.5 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] text-xs cursor-pointer"
+                      >
+                        +15m
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Train Delay Injection */}
+                  <div className="pt-2 border-t border-[#16233b] space-y-1.5">
+                    <span className="text-[11px] text-[#94a3b8] font-mono block">Dynamic Slot Perturbation:</span>
+                    <div className="grid grid-cols-2 gap-1.5 font-mono text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => handleShiftTrain(selectedTrain.id, 30)}
+                        className="px-2 py-1 rounded bg-[#1e1b4b] hover:bg-[#2e2b6b] border border-[#4338ca] text-[#c7d2fe] transition cursor-pointer"
+                      >
+                        +30m Freight Delay
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleShiftTrain(selectedTrain.id, 60)}
+                        className="px-2 py-1 rounded bg-[#3b1212] hover:bg-[#5b1a1a] border border-[#ef4444]/60 text-[#fca5a5] transition cursor-pointer"
+                      >
+                        +60m Cascade Delay
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dispatch Priority Analysis */}
+                <div className="rationale-box">
+                  <div className="rationale-label flex items-center gap-1.5">
+                    <TrainFront size={14} /> TRAIN OPERATIONAL PRIORITY
+                  </div>
+                  <p>
+                    {selectedTrain.priority === 1
+                      ? `${selectedTrain.name} is a high-priority passenger service. Mathematical CP-SAT enforces strict priority protection (w1 weight = ${punctualityWeight}%). Cannot be preempted by routine maintenance possessions.`
+                      : `${selectedTrain.name} is freight cargo. Can be looped at intermediate sidings (e.g. Palwal Loop 3) to allow multi-department possession windows.`}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedType("task");
+                    setSelectedId("PW-305");
+                  }}
+                  className="w-full py-2 rounded-lg bg-[#0e1726] hover:bg-[#162540] border border-[#1e3050] text-[#38bdf8] text-xs font-mono font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <span>Switch to Maintenance Task Inspector</span>
+                  <ArrowRight size={13} />
+                </button>
               </div>
-            </div>
+            ) : (
+              <>
+                {/* Task Card */}
+                <div className="selected-task">
+                  <div
+                    className="selected-icon"
+                    style={{ background: `${selectedTask.color}20`, color: selectedTask.color }}
+                  >
+                    {selectedTask.requiresElectricPower ? (
+                      <Zap size={20} />
+                    ) : selectedTask.isolatesOhe ? (
+                      <ZapOff size={20} />
+                    ) : (
+                      <Route size={20} />
+                    )}
+                  </div>
+
+                  <div className="selected-title">
+                    <div className="flex items-center gap-2">
+                      <h3>{selectedTask.title}</h3>
+                      <Pill
+                        tone={
+                          selectedTask.id === "PW-305"
+                            ? "amber"
+                            : selectedTask.status === "CO_UTILIZED"
+                            ? "lime"
+                            : "cyan"
+                        }
+                      >
+                        {selectedTask.id === "PW-305" ? "MUTEX DEFERRED" : selectedTask.status}
+                      </Pill>
+                    </div>
+                    <p>
+                      {selectedTask.id} · {selectedTask.department} · {selectedTask.section}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Manual Timeline Position Adjustment Card */}
+                <div className="p-3.5 rounded-xl bg-[#091224] border border-[#1e3050] space-y-3 shadow-xl">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#22d3ee] flex items-center gap-1.5 font-mono">
+                      <MoveHorizontal size={14} /> MANUAL TIMELINE POSITION
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#0a182e] text-[#38bdf8] border border-[#06b6d4]/30 font-bold">
+                      {formatTime(selectedTask.startMinute)} – {formatTime(selectedTask.startMinute + selectedTask.durationMinutes)}
+                    </span>
+                  </div>
+
+                  {/* Track Lane Selector */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-[#94a3b8] font-mono">
+                      <span>Assigned Possession Track / Block</span>
+                      <span className="text-white font-bold font-mono">Block {selectedTask.lane || (selectedTask.id === "ST-204" ? "B3" : selectedTask.id === "PW-305" ? "B2" : "B1")}</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 font-mono text-[10px]">
+                      {(["B1", "B2", "B3"] as const).map((laneKey) => (
+                        <button
+                          key={laneKey}
+                          type="button"
+                          onClick={() => handleSetTaskLane(selectedTask.id, laneKey)}
+                          className={`py-1 px-1.5 rounded text-center transition cursor-pointer border ${
+                            (selectedTask.lane || (selectedTask.id === "ST-204" ? "B3" : selectedTask.id === "PW-305" ? "B2" : "B1")) === laneKey
+                              ? "bg-[#0284c7]/30 border-[#38bdf8] text-[#38bdf8] font-bold shadow-sm"
+                              : "bg-[#091122] border-[#1e2e48] text-[#8ea4c2] hover:bg-[#111f38]"
+                          }`}
+                        >
+                          {laneKey === "B1" ? "B-1 (25kV Off)" : laneKey === "B2" ? "B-2 (Live Gap)" : "B-3 (Parts Ready)"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Start Time Slider */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-[#94a3b8] font-mono">
+                      <span>Scheduled Start Time</span>
+                      <span className="text-white font-bold">{formatTime(selectedTask.startMinute)}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1440 - selectedTask.durationMinutes}
+                      step={15}
+                      value={selectedTask.startMinute}
+                      onChange={(e) => handleSetTaskStart(selectedTask.id, parseInt(e.target.value))}
+                      className="w-full h-1.5 bg-[#142036] rounded-lg appearance-none cursor-pointer accent-[#06b6d4]"
+                    />
+                    <div className="flex items-center justify-between text-[9px] text-[#526682] font-mono">
+                      <span>00:00</span>
+                      <span>06:00</span>
+                      <span>12:00</span>
+                      <span>18:00</span>
+                      <span>24:00</span>
+                    </div>
+                  </div>
+
+                  {/* Quick Nudge Buttons */}
+                  <div className="grid grid-cols-4 gap-1.5 pt-1 font-mono text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => handleShiftTask(selectedTask.id, -60)}
+                      className="px-1.5 py-1 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] transition cursor-pointer"
+                      title="Shift 1 hour backward"
+                    >
+                      -1 hr
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShiftTask(selectedTask.id, -15)}
+                      className="px-1.5 py-1 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] transition cursor-pointer"
+                      title="Shift 15 minutes backward"
+                    >
+                      -15m
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShiftTask(selectedTask.id, 15)}
+                      className="px-1.5 py-1 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] transition cursor-pointer"
+                      title="Shift 15 minutes forward"
+                    >
+                      +15m
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShiftTask(selectedTask.id, 60)}
+                      className="px-1.5 py-1 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] transition cursor-pointer"
+                      title="Shift 1 hour forward"
+                    >
+                      +1 hr
+                    </button>
+                  </div>
+
+                  {/* Duration Adjuster */}
+                  <div className="pt-2 border-t border-[#16233b] flex items-center justify-between text-xs">
+                    <span className="text-[#8ea4c2] font-mono text-[11px]">Duration Window:</span>
+                    <div className="flex items-center gap-1.5 font-mono">
+                      <button
+                        type="button"
+                        onClick={() => handleSetTaskDuration(selectedTask.id, selectedTask.durationMinutes - 30)}
+                        className="px-2 py-0.5 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] text-xs cursor-pointer"
+                        title="Shorten window by 30 mins"
+                      >
+                        -30m
+                      </button>
+                      <span className="text-white font-bold text-[11px] px-1.5">
+                        {Math.floor(selectedTask.durationMinutes / 60)}h {selectedTask.durationMinutes % 60}m
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleSetTaskDuration(selectedTask.id, selectedTask.durationMinutes + 30)}
+                        className="px-2 py-0.5 rounded bg-[#0c1628] hover:bg-[#14233e] border border-[#1e2f4a] text-[#cbd5e1] text-xs cursor-pointer"
+                        title="Extend window by 30 mins"
+                      >
+                        +30m
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Real-time Conflict Alert Box & Auto-Snap Button */}
+                  {checkPowerClash(selectedTask, tasks) ? (
+                    <div className="p-2.5 rounded-lg bg-[#3b1212] border border-[#ef4444] text-[#fca5a5] text-xs space-y-1.5">
+                      <div className="flex items-center gap-1.5 font-bold font-mono text-[#f87171]">
+                        <AlertTriangle size={14} /> ⚡ POWER CLASH DETECTED!
+                      </div>
+                      <p className="text-[10px] leading-tight text-[#fecaca]">
+                        {selectedTask.title} requires electric power, but overlaps with 25kV OHE power isolation block!
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleSnapToSafeGap(selectedTask.id)}
+                        className="w-full mt-1 py-1 rounded bg-[#ef4444] hover:bg-[#dc2626] text-white font-bold text-[10px] uppercase font-mono transition cursor-pointer"
+                      >
+                        ⚡ Auto-Snap to Energized Gap (06:40 IST)
+                      </button>
+                    </div>
+                  ) : checkStockoutClash(selectedTask, partsOrdered) ? (
+                    <div className="p-2.5 rounded-lg bg-[#3b2308] border border-[#f59e0b] text-[#fde68a] text-xs space-y-1.5">
+                      <div className="flex items-center gap-1.5 font-bold font-mono text-[#fbbf24]">
+                        <AlertTriangle size={14} /> ⚠️ INVENTORY STOCKOUT CLASH!
+                      </div>
+                      <p className="text-[10px] leading-tight text-[#fef3c7]">
+                        Point machine motor parts arrive at {formatTime(partsReadyMinute)}. Task is scheduled before delivery!
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleSnapToSafeGap(selectedTask.id)}
+                        className="w-full mt-1 py-1 rounded bg-[#f59e0b] hover:bg-[#d97706] text-[#1c1202] font-bold text-[10px] uppercase font-mono transition cursor-pointer"
+                      >
+                        📦 Auto-Snap Post Delivery ({formatTime(partsReadyMinute + 30)})
+                      </button>
+                    </div>
+                  ) : checkTrainConflict(selectedTask, trains) ? (
+                    <div className="p-2.5 rounded-lg bg-[#3b1212] border border-[#ef4444] text-[#fca5a5] text-xs space-y-1.5">
+                      <div className="flex items-center gap-1.5 font-bold font-mono text-[#f87171]">
+                        <AlertTriangle size={14} /> 🚆 TRAIN CONFLICT DETECTED!
+                      </div>
+                      <p className="text-[10px] leading-tight text-[#fecaca]">
+                        Possession window conflicts with active train timetable path on Corridor C-01!
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handleSnapToSafeGap(selectedTask.id)}
+                        className="w-full mt-1 py-1 rounded bg-[#ef4444] hover:bg-[#dc2626] text-white font-bold text-[10px] uppercase font-mono transition cursor-pointer"
+                      >
+                        🚆 Auto-Snap to Clear Track Window
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-2 rounded bg-[#061e16] border border-[#10b981]/40 text-[#6ee7b7] text-[11px] flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <CheckCircle2 size={13} className="text-[#10b981]" /> Conflict-Free Slot
+                      </span>
+                      <span className="text-[9px] font-mono text-[#10b981] font-bold">SAFE TO DISPATCH</span>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
 
             {/* Metrics Breakdown */}
             <div className="detail-grid">

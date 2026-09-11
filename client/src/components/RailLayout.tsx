@@ -8,13 +8,18 @@ import {
   Check,
   CheckCircle2,
   Command,
+  Eye,
   FileSpreadsheet,
   Layers3,
+  Radio,
   Route,
   Search,
   Settings2,
+  ShieldCheck,
   SlidersHorizontal,
+  Train,
   Volume2,
+  VolumeX,
   X,
   Zap,
 } from "lucide-react";
@@ -25,7 +30,7 @@ export function Pill({
   tone = "neutral",
 }: {
   children: ReactNode;
-  tone?: "neutral" | "lime" | "cyan" | "amber" | "red";
+  tone?: "neutral" | "lime" | "cyan" | "amber" | "red" | "emerald" | "crimson" | "violet";
 }) {
   return <span className={`pill pill-${tone}`}>{children}</span>;
 }
@@ -45,6 +50,20 @@ export function RailLayout({
 }) {
   const [location, setLocation] = useLocation();
 
+  // Live IST Clock
+  const [currentTime, setCurrentTime] = useState(() => {
+    const now = new Date();
+    return now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }) + " IST";
+  });
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      setCurrentTime(now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }) + " IST");
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Modals & Panels
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -52,10 +71,14 @@ export function RailLayout({
   const [showFeedsModal, setShowFeedsModal] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
 
+  // Quick Toggles
+  const [soundAlerts, setSoundAlerts] = useState(true);
+  const [highContrast, setHighContrast] = useState(false);
+  const [autoSanctionSandbox, setAutoSanctionSandbox] = useState(true);
+
   // Settings State
   const [headwayBuffer, setHeadwayBuffer] = useState(20);
   const [division, setDivision] = useState("Agra (NCR)");
-  const [soundAlerts, setSoundAlerts] = useState(true);
   const [maxSolveTime, setMaxSolveTime] = useState(10);
 
   // Notification items
@@ -217,7 +240,72 @@ export function RailLayout({
         </div>
       </aside>
 
-      <main className="rail-main">
+      <main className={`rail-main ${highContrast ? "high-contrast-mode" : ""}`}>
+        {/* Stitch Mission Control Top Status Bar */}
+        <div className="mission-bar">
+          <div className="mission-section">
+            <div className="mission-clock">
+              <span className="beacon-dot" />
+              <span>{currentTime}</span>
+            </div>
+            <span className="text-[#283952]">|</span>
+            <div className="mission-chip emerald">
+              <Train size={12} className="text-[#10b981]" />
+              <span>12050 GATIMAAN</span>
+              <strong>158 KM/H</strong>
+              <span className="text-[#10b981] font-bold">● RT</span>
+            </div>
+            <div className="mission-chip cyan">
+              <Train size={12} className="text-[#22d3ee]" />
+              <span>12952 RAJDHANI</span>
+              <strong>129 KM/H</strong>
+              <span className="text-[#22d3ee]">CLEAR</span>
+            </div>
+            <div className="mission-chip">
+              <Zap size={12} className="text-[#06b6d4]" />
+              <span>WESTERN DFC</span>
+              <strong>25.4 kV NOMINAL</strong>
+              <span className="text-[#10b981]">98.4%</span>
+            </div>
+          </div>
+
+          <div className="mission-section">
+            <button
+              type="button"
+              className="text-[10px] flex items-center gap-1.5 px-2 py-1 rounded bg-[#0d1527] border border-[#1a2538] hover:border-[#06b6d4] text-[#8ea4c2] transition-colors"
+              onClick={() => {
+                const next = !soundAlerts;
+                setSoundAlerts(next);
+                toast(next ? "Operational Audio Alerts: ENABLED" : "Operational Audio Alerts: MUTED");
+              }}
+              title="Toggle Audio Warnings"
+            >
+              {soundAlerts ? <Volume2 size={12} className="text-[#10b981]" /> : <VolumeX size={12} className="text-[#f87171]" />}
+              <span>{soundAlerts ? "AUDIO ON" : "MUTED"}</span>
+            </button>
+
+            <button
+              type="button"
+              className="text-[10px] flex items-center gap-1.5 px-2 py-1 rounded bg-[#0d1527] border border-[#1a2538] hover:border-[#06b6d4] text-[#8ea4c2] transition-colors"
+              onClick={() => {
+                const next = !highContrast;
+                setHighContrast(next);
+                toast(next ? "High-Contrast Cockpit Mode: ACTIVATED" : "Standard Ops Display: RESTORED");
+              }}
+              title="Toggle High Contrast Tactical Display"
+            >
+              <Eye size={12} className={highContrast ? "text-[#22d3ee]" : "text-[#647b99]"} />
+              <span>{highContrast ? "HIGH-CONTRAST" : "COCKPIT"}</span>
+            </button>
+
+            <div className="mission-chip cyan">
+              <ShieldCheck size={12} className="text-[#22d3ee]" />
+              <span>COA AUTO-SANCTION</span>
+              <strong className="text-[#10b981]">ACTIVE</strong>
+            </div>
+          </div>
+        </div>
+
         <header className="topbar">
           <div className="breadcrumb">
             <span className="muted">Operations</span>
