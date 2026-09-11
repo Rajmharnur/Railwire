@@ -196,7 +196,6 @@ Your query regarding **"${userText}"** was processed by the RailBlock dispatch r
     { href: "/analytics", label: "Solver Benchmark", icon: BarChart3, badge: "20-COR" },
     { href: "/scenarios", label: "What-If Sandbox", icon: SlidersHorizontal },
     { href: "/coa-sanction", label: "COA Sanction Memo", icon: FileSpreadsheet },
-    { href: "/components", label: "UI Design Library", icon: Sparkles, badge: "DOCS" },
   ];
 
   const paletteActions = [
@@ -208,7 +207,6 @@ Your query regarding **"${userText}"** was processed by the RailBlock dispatch r
     { label: "Run 20-Corridor 200-Task Benchmark", path: "/analytics", icon: BarChart3, category: "Navigation" },
     { label: "Open What-If Scenario Sandbox", path: "/scenarios", icon: SlidersHorizontal, category: "Navigation" },
     { label: "Generate Official COA Sanction Memo", path: "/coa-sanction", icon: FileSpreadsheet, category: "Navigation" },
-    { label: "Open UI Component & Design System Showcase", path: "/components", icon: Sparkles, category: "Design System" },
   ];
 
   const filteredPalette = paletteActions.filter((a) =>
