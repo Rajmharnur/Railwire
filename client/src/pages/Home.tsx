@@ -41,6 +41,7 @@ import {
   TriangleAlert,
   Truck,
   Users,
+  Workflow,
   Wrench,
   X,
   Zap,
@@ -773,6 +774,14 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
+          <Link href="/architecture">
+            <button
+              type="button"
+              className="px-3.5 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs flex items-center gap-2 border border-neutral-700/80 shadow-md transition cursor-pointer"
+            >
+              <Workflow size={13} className="text-lime-400" /> Architecture Hub (SIH)
+            </button>
+          </Link>
           <button
             onClick={() => setShowPitchModal(true)}
             className="px-4 py-2 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-bold text-xs flex items-center gap-2 shadow-lg shadow-lime-500/25 transition cursor-pointer"

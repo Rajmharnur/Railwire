@@ -11,11 +11,13 @@ import Analytics from "./pages/Analytics";
 import Scenarios from "./pages/Scenarios";
 import CoaSanction from "./pages/CoaSanction";
 import SignalManagement from "./pages/SignalManagement";
+import ArchitectureOverview from "./pages/ArchitectureOverview";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/architecture" component={ArchitectureOverview} />
       <Route path="/corridors" component={Corridors} />
       <Route path="/work-orders" component={WorkOrders} />
       <Route path="/signals" component={SignalManagement} />

@@ -302,3 +302,124 @@ export type InterlockingStation = {
   operatingMode: OperatingMode;
 };
 
+// ==========================================
+// ARCHITECTURE DOMAIN TYPES (SIH SPECIFICATION)
+// ==========================================
+
+export type TrainHealthStatus = "Good" | "Warning" | "Critical";
+
+export interface TrainHealthComponent {
+  id: string;
+  name: string;
+  location: string;
+  rulDays: number;
+  failureProbability: number; // 0 to 100 percentage
+  status: TrainHealthStatus;
+  telemetry: {
+    vibrationMmS2?: number; // normal < 2.5, alert > 4.5
+    temperatureC?: number; // normal < 65, alert > 85
+    pressureBar?: number; // brake pipe: normal 5.0 bar, alert < 4.6
+    currentAmps?: number; // traction motor current
+  };
+  lastInspection: string;
+  sensorNodeId: string;
+  xPosPercent: number; // For interactive train schematic positioning
+  yPosPercent: number;
+}
+
+export interface TrainHealthSystem {
+  rakeId: string;
+  rakeName: string;
+  rakeType: "Vande Bharat Express (Train 18)" | "WAP-7 Heavy Electric Rake" | "WAG-9 Freight Rake";
+  overallHealthScore: number; // 0 to 100
+  iotGatewayStatus: "ONLINE" | "DEGRADED" | "OFFLINE";
+  edgeDeviceLatencyMs: number;
+  cloudSyncStatus: "SYNCED" | "PENDING";
+  activeSensorsCount: number;
+  components: TrainHealthComponent[];
+}
+
+export interface AIPriorityFactors {
+  defectSeverity: number; // 1 to 10
+  overdueDays: number; // 0 to 90 days
+  assetCriticality: number; // 1 to 10
+  impactOnOperations: number; // 1 to 10
+  historicalFailureRate: number; // 0 to 100%
+  trafficDensityGmt: number; // 10 to 120 GMT
+}
+
+export interface AIPriorityScoreResult {
+  priorityScore: number; // 0 to 100
+  riskTier: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+  impactOnAssetAvailability: number; // percentage penalty e.g. -8.4%
+  failureProbability: number; // percentage
+  defectCriticality: number; // 0 to 10
+  maintenancePriority: number; // 0 to 100
+  dominantFactor: string;
+  recommendation: string;
+  factorContributions: {
+    severity: number;
+    overdue: number;
+    assetCriticality: number;
+    trainImpact: number;
+    historicalFailure: number;
+    trafficDensity: number;
+  };
+}
+
+export type BlockPlanDepartment = "Track" | "Signalling" | "Traction" | "Combined";
+
+export interface WeeklyBlockItem {
+  id: string;
+  blockNumber: string; // e.g. "Block 1", "Block 2"
+  title: string;
+  department: BlockPlanDepartment;
+  corridor: string;
+  day: "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
+  startHour: number; // 0 to 24
+  durationHours: number;
+  speedRestrictionKmh?: number;
+  status: "PLANNED" | "APPROVED" | "IN_PROGRESS" | "COMPLETED";
+  assetImpactScore: number;
+}
+
+export interface MonthlyWeekPlan {
+  week: "Week 1" | "Week 2" | "Week 3" | "Week 4" | "Week 5";
+  plannedBlocks: number;
+  executedBlocks: number;
+  totalCorridorCapacityHours: number;
+  allocatedMaintenanceHours: number;
+  assetAvailabilityPercent: number;
+  downtimeReductionPercent: number;
+  completionPercent: number;
+}
+
+export interface BlockOptimizerEngineConfig {
+  objectives: {
+    maximizeAssetAvailability: boolean;
+    minimizeDowntime: boolean;
+    ensureTrainOperations: boolean;
+    safetyAndCompliance: boolean;
+  };
+  constraints: {
+    corridorAvailability: boolean;
+    trainTimetable: boolean;
+    goodsTrainForecast: boolean;
+    maintenanceDuration: boolean;
+    departmentDependencies: boolean;
+    resourceAvailability: boolean;
+  };
+  algorithm: "MILP_ILP" | "GENETIC_ALGORITHM" | "HEURISTIC_AI";
+}
+
+export interface DataPipelineSource {
+  code: "TMS" | "SMMS" | "TDMS" | "COA" | "HEALTH_IOT";
+  name: string;
+  fullName: string;
+  status: "ONLINE" | "SYNCING" | "STANDBY";
+  recordsIngestedLastHour: number;
+  dataQualityScore: number;
+  mappedAssetIdsCount: number;
+  keyFeatures: string[];
+}
+

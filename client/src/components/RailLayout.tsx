@@ -21,6 +21,7 @@ import {
   Train,
   Volume2,
   VolumeX,
+  Workflow,
   X,
   Zap,
   Bot,
@@ -190,6 +191,7 @@ Your query regarding **"${userText}"** was processed by the RailBlock dispatch r
 
   const navItems = [
     { href: "/", label: "Command Center", icon: Activity, badge: "LIVE" },
+    { href: "/architecture", label: "Architecture & Hub", icon: Workflow, badge: "SIH-SPEC" },
     { href: "/corridors", label: "Corridors Map", icon: Route },
     { href: "/work-orders", label: "Work Orders & ML", icon: Layers3, count: "24" },
     { href: "/signals", label: "Signal & Interlocking", icon: ShieldAlert, badge: "EI/T-351" },
@@ -201,6 +203,7 @@ Your query regarding **"${userText}"** was processed by the RailBlock dispatch r
   const paletteActions = [
     { label: "Ask AI Operations Co-Pilot", path: "#ai-copilot", icon: Bot, category: "AI Assistant" },
     { label: "Go to Master Command Center", path: "/", icon: Activity, category: "Navigation" },
+    { label: "Open Architecture & Operations Hub", path: "/architecture", icon: Workflow, category: "Navigation" },
     { label: "Open Corridors Topology Map", path: "/corridors", icon: Route, category: "Navigation" },
     { label: "View Work Orders & ML Scoring", path: "/work-orders", icon: Layers3, category: "Navigation" },
     { label: "Open Signal & Interlocking Console", path: "/signals", icon: ShieldAlert, category: "Navigation" },
