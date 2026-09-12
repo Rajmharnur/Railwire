@@ -270,9 +270,17 @@ export default function ArchitectureOverview() {
                 <b>Unique Asset ID Mapping:</b> TRK-NDLS-142 (P-Way) ↔ SIG-MTC-04 (Point Machine) ↔ OHE-PW-25K (TRD Catenary)
               </span>
             </div>
-            <div className="flex items-center gap-2 text-[11px] text-[#718892]">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#718892]">
               <span className="px-2 py-0.5 rounded bg-[#121c20] text-cyan-300">Data Lake: TimescaleDB</span>
               <span className="px-2 py-0.5 rounded bg-[#121c20] text-emerald-300">Cleaned & Validated</span>
+              <Link href="/database">
+                <button
+                  type="button"
+                  className="px-2.5 py-1 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 flex items-center gap-1.5 transition cursor-pointer font-bold"
+                >
+                  <Database size={12} /> Open DB Tables Explorer
+                </button>
+              </Link>
             </div>
           </div>
         </div>

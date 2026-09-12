@@ -153,3 +153,11 @@
 [2026-09-11T08:45:56.638Z] {"timestamp":1789116354291,"level":"DEBUG","args":["[Manus] Debug collector initialized (no rrweb, UI events only)"],"stack":null}
 [2026-09-11T08:45:56.638Z] {"timestamp":1789116354402,"level":"DEBUG","args":["[vite] connected."],"stack":null}
 [2026-09-11T08:45:56.638Z] {"timestamp":1789116356250,"level":"INFO","args":["%cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools","font-weight:bold"],"stack":null}
+[2026-09-12T05:52:19.702Z] {"timestamp":1789192338736,"level":"DEBUG","args":["[vite]","hot updated: /src/App.tsx"],"stack":null}
+[2026-09-12T05:52:19.702Z] {"timestamp":1789192338736,"level":"DEBUG","args":["[vite]","hot updated: /src/index.css"],"stack":null}
+[2026-09-12T05:53:23.539Z] {"timestamp":1789192402098,"level":"DEBUG","args":["[vite]","hot updated: /src/index.css"],"stack":null}
+[2026-09-12T05:53:23.539Z] {"timestamp":1789192402099,"level":"DEBUG","args":["[vite]","hot updated: /src/components/RailLayout.tsx"],"stack":null}
+[2026-09-12T05:54:29.545Z] {"timestamp":1789192428337,"level":"DEBUG","args":["[vite]","hot updated: /src/index.css"],"stack":null}
+[2026-09-12T05:54:29.545Z] {"timestamp":1789192428337,"level":"DEBUG","args":["[vite]","hot updated: /src/components/RailLayout.tsx"],"stack":null}
+[2026-09-12T05:55:29.544Z] {"timestamp":1789192484718,"level":"DEBUG","args":["[vite]","hot updated: /src/pages/ArchitectureOverview.tsx"],"stack":null}
+[2026-09-12T05:55:29.544Z] {"timestamp":1789192484719,"level":"DEBUG","args":["[vite]","hot updated: /src/index.css"],"stack":null}
